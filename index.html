@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Scene Gallery</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #181b22;
+      --border: #2a2f3a;
+      --text: #e8eaf0;
+      --muted: #8b92a3;
+      --accent: #5b9dff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header { padding: 32px 24px 8px; max-width: 1800px; margin: 0 auto; }
+    header h1 { font-size: 1.75rem; font-weight: 600; }
+    header p { color: var(--muted); margin-top: 6px; font-size: 0.95rem; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      padding: 24px;
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px)  { .grid { grid-template-columns: 1fr; padding: 16px; } }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .view {
+      position: relative;
+      width: 100%;
+      height: 320px;
+      background: radial-gradient(circle at 50% 40%, #252a35 0%, #14161c 100%);
+      touch-action: none;
+    }
+    .view canvas { display: block; width: 100%; height: 100%; }
+
+    /* Video quay thực tế ở góc khung */
+    .pip {
+      position: absolute; right: 8px; bottom: 8px;
+      width: 38%; aspect-ratio: 16 / 9;
+      border-radius: 8px; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.25);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+      background: #000; cursor: zoom-in;
+      transition: width 0.25s, height 0.25s, right 0.25s, bottom 0.25s, border-radius 0.25s;
+      z-index: 2;
+    }
+    .pip video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pip .pip-label {
+      position: absolute; left: 6px; top: 5px;
+      font-size: 0.65rem; color: #fff; background: rgba(0,0,0,0.55);
+      padding: 1px 5px; border-radius: 4px; pointer-events: none;
+    }
+    .pip.big {
+      right: 0; bottom: 0; width: 100%; height: 100%; aspect-ratio: auto;
+      border-radius: 0; border: none; cursor: default;
+    }
+    .pip.big video { object-fit: contain; }
+    .pip .pip-close {
+      display: none; position: absolute; right: 8px; top: 8px;
+      background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 6px; padding: 3px 9px; font-size: 0.75rem; cursor: pointer;
+    }
+    .pip.big .pip-close { display: block; }
+    .pip.big .pip-label { display: none; }
+    .pip.hidden { display: none; }
+
+    .progress {
+      position: absolute; left: 0; bottom: 0;
+      height: 3px; width: 0%;
+      background: var(--accent);
+      transition: width 0.2s, opacity 0.4s;
+    }
+    .progress.done { opacity: 0; }
+
+    .status {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 20px;
+      color: var(--muted); font-size: 0.9rem;
+      pointer-events: none;
+    }
+    .status.error { color: #ff8a8a; }
+    .status.hidden { display: none; }
+    .status small { color: var(--muted); word-break: break-all; }
+    .view.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+
+    .info {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; gap: 8px; flex-wrap: wrap;
+      border-top: 1px solid var(--border);
+    }
+    .info h2 { font-size: 1rem; font-weight: 500; }
+    .info .tag {
+      font-size: 0.7rem; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 1px 5px; margin-left: 6px; text-transform: uppercase;
+      vertical-align: middle;
+    }
+    .actions { display: flex; gap: 6px; }
+    .actions button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .actions button:hover { border-color: var(--accent); color: var(--accent); }
+
+    footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 16px 0 32px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>3D Scene Gallery</h1>
+    <p>Drag to rotate · Scroll or pinch to zoom · Right-click drag or two-finger drag to pan · Drop a .ply file onto any panel to preview it</p>
+  </header>
+
+  <div id="fatal" style="display:none;max-width:900px;margin:24px auto;padding:16px 20px;border:1px solid #ff8a8a;border-radius:10px;color:#ff8a8a;font-size:0.95rem;line-height:1.5"></div>
+  <script>
+    // Nếu script chính không chạy được, hiện lý do thay vì để trang trống
+    window.addEventListener("error", (e) => {
+      const src = e.target && (e.target.src || e.target.href);
+      if (!e.message && !src) return;
+      const box = document.getElementById("fatal");
+      box.style.display = "block";
+      box.innerHTML += "<b>Error:</b> " + (e.message || "failed to load " + src) + "<br>";
+    }, true);
+    setTimeout(() => {
+      if (document.querySelector(".card")) return;
+      const box = document.getElementById("fatal");
+      box.style.display = "block";
+      box.innerHTML += location.protocol === "file:"
+        ? "This page was opened directly from disk (file://). Open it via its github.io link, or run <code>python -m http.server</code> in this folder and open http://localhost:8000"
+        : "The page failed to start. Your network may be blocking cdn.jsdelivr.net (the Three.js library). Press F12 → Console for details.";
+    }, 6000);
+  </script>
+  <main class="grid" id="grid"></main>
+
+  <footer>PLY viewer · Rendered with Three.js</footer>
+
+  <script type="module">
+    // ====================== SỬA DANH SÁCH NÀY ======================
+    // title : tên hiển thị
+    // file  : đường dẫn tới file .ply (trình đọc cũng hỗ trợ .glb / .gltf)
+    // upAxis: (tuỳ chọn) đặt "z" nếu mô hình bị nằm ngửa — hay gặp với
+    //         file .ply xuất từ máy quét 3D, Meshlab, CloudCompare...
+    // pointSize: (tuỳ chọn) kích thước điểm, chỉ dùng cho .ply dạng đám mây điểm
+    // video : (tuỳ chọn) đường dẫn file .mp4 quay thực tế, hiện ở góc khung. Bỏ trống nếu không có.
+    // BASE_URL: thư mục chứa file mô hình và video.
+    // - Để "" nếu file nằm cùng repo GitHub (VD: "models/abc.ply").
+    // - Nếu lưu trên Hugging Face, ghi dạng:
+    //   "https://huggingface.co/datasets/TEN-TAI-KHOAN/TEN-DATASET/resolve/main/"
+    //   (nhớ dấu / ở cuối). Đường dẫn bắt đầu bằng http(s):// bên dưới sẽ không bị ghép BASE_URL.
+    const BASE_URL = "https://huggingface.co/datasets/SangNguyenQuang/genrecon_results/resolve/main/";
+
+    const SCENES = [
+      // Hàng 1
+      { title: "Setting 1 - Scene 1", file: "models/setting1_scene1.ply", video: "videos/setting1_scene1.mp4" },
+      { title: "Setting 2 - Scene 1", file: "models/setting2_scene1.ply", video: "videos/setting2_scene1.mp4" },
+      { title: "Setting 3 - Scene 1", file: "models/setting3_scene1.ply", video: "videos/setting3_scene1.mp4" },
+      { title: "Setting 4 - Scene 1", file: "models/setting4_scene1.ply", video: "videos/setting4_scene1.mp4" },
+      // Hàng 2
+      { title: "Setting 1 - Scene 2", file: "models/setting1_scene2.ply", video: "videos/setting1_scene2.mp4" },
+      { title: "Setting 2 - Scene 2", file: "models/setting2_scene2.ply", video: "videos/setting2_scene2.mp4" },
+      { title: "Setting 3 - Scene 2", file: "models/setting3_scene2.ply", video: "videos/setting3_scene2.mp4", pointSize: 2 },
+      { title: "Setting 4 - Scene 2", file: "models/setting4_scene2.ply", video: "videos/setting4_scene2.mp4" },
+    ];
+    // ===============================================================
+
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { TrackballControls } from "three/addons/controls/TrackballControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+    import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+    import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+    const draco = new DRACOLoader().setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
+    const gltfLoader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
+
+    const grid = document.getElementById("grid");
+    const resolveUrl = (f) => (!f || /^(https?:)?\/\//.test(f) || !BASE_URL) ? f : BASE_URL.replace(/\/?$/, "/") + f.replace(/^\.?\//, "");
+    const fmt = (f) => f.split("?")[0].split(".").pop().toLowerCase();
+
+    // Chỉ vẽ những khung đang nằm trên màn hình để tiết kiệm pin/GPU
+    const visibility = new IntersectionObserver((entries) => {
+      for (const e of entries) e.target._viewer?.setVisible(e.isIntersecting);
+    });
+
+    SCENES.forEach((scene) => createViewer(scene));
+
+    // Tải file, báo tiến độ và lỗi rõ ràng
+    async function fetchFile(url, onProgress) {
+      let res;
+      try { res = await fetch(url); }
+      catch (e) { throw new Error("Could not connect to the file. If you opened index.html by double-clicking it, serve it through a web server instead."); }
+      if (!res.ok) {
+        throw new Error(res.status === 404
+          ? `File not found (404). Check the file name and folder — GitHub file names are case-sensitive.`
+          : `Server error: HTTP ${res.status}.`);
+      }
+      const total = +res.headers.get("content-length") || 0;
+      if (!res.body) return await res.arrayBuffer();
+      const reader = res.body.getReader();
+      const chunks = []; let loaded = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); loaded += value.length;
+        onProgress(loaded, total);
+      }
+      const out = new Uint8Array(loaded); let o = 0;
+      for (const c of chunks) { out.set(c, o); o += c.length; }
+      return out.buffer;
+    }
+
+    function checkContent(buf, ext) {
+      const head = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(200, buf.byteLength)));
+      if (head.startsWith("version https://git-lfs")) {
+        throw new Error("This file is only a Git LFS pointer, not the actual file. GitHub Pages does not serve LFS files — remove LFS tracking for this file or re-upload it through the browser.");
+      }
+      if (/^\s*<(!doctype|html)/i.test(head)) {
+        throw new Error("The server returned an HTML page instead of a 3D file — the file path may be wrong.");
+      }
+      if (ext === "ply" && !head.startsWith("ply")) {
+        throw new Error("This is not a PLY file (PLY files must start with 'ply').");
+      }
+    }
+
+    function createViewer(scene) {
+      const ext = fmt(scene.file);
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="view">
+          <div class="status">Loading…</div>
+          <div class="progress"></div>
+          ${scene.video ? `
+          <div class="pip" title="Click to enlarge video">
+            <video src="${resolveUrl(scene.video)}" muted loop playsinline preload="metadata"></video>
+            <span class="pip-label">Real video</span>
+            <button class="pip-close">Back to 3D</button>
+          </div>` : ""}
+        </div>
+        <div class="info">
+          <h2><span class="name">${scene.title}</span><span class="tag">${ext}</span></h2>
+          <div class="actions">
+            <button data-act="mode" title="Switch rotation mode">Rotate: free</button>
+            <button data-act="reset" title="Return the camera to its starting view">Reset</button>
+          </div>
+        </div>`;
+      grid.appendChild(card);
+
+      const view = card.querySelector(".view");
+      const bar = card.querySelector(".progress");
+      const status = card.querySelector(".status");
+      const tag = card.querySelector(".tag");
+
+      // --- Video góc khung ---
+      const pip = card.querySelector(".pip");
+      const video = pip?.querySelector("video");
+      if (pip) {
+        video.addEventListener("error", () => pip.classList.add("hidden"));
+        // Chặn thao tác trên video lọt xuống khung 3D
+        ["pointerdown", "wheel", "touchstart"].forEach((ev) =>
+          pip.addEventListener(ev, (e) => e.stopPropagation(), { passive: true }));
+        pip.addEventListener("click", (e) => {
+          if (e.target.classList.contains("pip-close")) {
+            pip.classList.remove("big");
+            video.controls = false;
+            video.muted = true;
+            return;
+          }
+          if (!pip.classList.contains("big")) {
+            pip.classList.add("big");
+            video.controls = true;
+            video.play().catch(() => {});
+          }
+        });
+      }
+
+      // --- Renderer, scene, camera ---
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      view.prepend(renderer.domElement);
+
+      const world = new THREE.Scene();
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      world.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+      sun.position.set(3, 5, 4);
+      world.add(sun);
+
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+      // Hai kiểu điều khiển:
+      // - "free"  (TrackballControls): xoay tự do mọi hướng, lật ngược được
+      // - "orbit" (OrbitControls): giữ mô hình luôn đứng thẳng, dễ định hướng hơn
+      let controls = null;
+      let mode = scene.rotate === "orbit" ? "orbit" : "free";
+      let radius = 1;
+      function makeControls() {
+        const target = controls ? controls.target.clone() : new THREE.Vector3();
+        controls?.dispose();
+        if (mode === "free") {
+          controls = new TrackballControls(camera, renderer.domElement);
+          controls.rotateSpeed = 3.0;
+          controls.zoomSpeed = 1.2;
+          controls.panSpeed = 0.8;
+          controls.staticMoving = false;
+          controls.dynamicDampingFactor = 0.15;
+          controls.handleResize();
+        } else {
+          camera.up.set(0, 1, 0);
+          controls = new OrbitControls(camera, renderer.domElement);
+          controls.enableDamping = true;
+          controls.screenSpacePanning = true;
+        }
+        controls.minDistance = radius * 0.001;
+        controls.maxDistance = radius * 1000;
+        controls.target.copy(target);
+        controls.update();
+      }
+      makeControls();
+
+      const clock = new THREE.Clock();
+      let mixer = null;
+      let home = null;
+      let visible = false;
+      let current = null;
+
+      function resize() {
+        const w = view.clientWidth, h = view.clientHeight;
+        if (!w || !h) return;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        controls?.handleResize?.();
+      }
+      new ResizeObserver(resize).observe(view);
+      resize();
+
+      renderer.setAnimationLoop(() => {
+        if (!visible) return;
+        const dt = clock.getDelta();
+        if (mixer) mixer.update(dt);
+        controls.update();
+        renderer.render(world, camera);
+      });
+
+      view._viewer = {
+        setVisible: (v) => {
+          visible = v; clock.getDelta();
+          // Chỉ phát video khi khung đang hiện trên màn hình
+          if (video) v ? video.play().catch(() => {}) : video.pause();
+        },
+      };
+      visibility.observe(view);
+
+      const setStatus = (msg, isError) => {
+        status.innerHTML = msg;
+        status.classList.toggle("error", !!isError);
+        status.classList.remove("hidden");
+      };
+      const onProgress = (loaded, total) => {
+        if (total) bar.style.width = (loaded / total) * 100 + "%";
+        setStatus(`Loading… ${(loaded / 1048576).toFixed(1)} MB` + (total ? ` / ${(total / 1048576).toFixed(1)} MB` : ""));
+      };
+      const fail = (where, err) => {
+        console.error(where, err);
+        setStatus(`<div><b>Could not display</b><br><small>${where}</small><br><br>${err.message || err}</div>`, true);
+        bar.classList.add("done");
+      };
+
+      async function loadBuffer(buf, fileExt, label) {
+        bar.classList.remove("done");
+        setStatus("Processing…");
+        await new Promise((r) => setTimeout(r, 30)); // cho trình duyệt kịp vẽ chữ
+        checkContent(buf, fileExt);
+        if (fileExt === "glb" || fileExt === "gltf") {
+          const gltf = await gltfLoader.parseAsync(buf, "");
+          const obj = gltf.scene;
+          mixer = null;
+          if (gltf.animations.length) {
+            mixer = new THREE.AnimationMixer(obj);
+            gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
+          }
+          show(obj, false);
+        } else if (fileExt === "ply") {
+          const data = parsePLY(buf);
+          mixer = null;
+          show(plyToObject(data, scene), !data.isMesh);
+          if (!data.isMesh) tag.textContent = "ply · points";
+        } else {
+          throw new Error(`The .${fileExt} file format is not supported.`);
+        }
+        status.classList.add("hidden");
+        bar.style.width = "100%";
+        bar.classList.add("done");
+      }
+
+      function show(obj, isPoints) {
+        if (current) {
+          world.remove(current);
+          current.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
+        }
+        if (scene.upAxis === "z") obj.rotation.x = -Math.PI / 2;
+        world.add(obj);
+        current = obj;
+        frame(obj, isPoints);
+      }
+
+      // Đặt camera vừa khít với mô hình.
+      // Với đám mây điểm: bỏ 2% điểm ngoài cùng mỗi trục để vài điểm "lạc" không làm mô hình bị thu nhỏ.
+      function frame(obj, isPoints) {
+        obj.updateMatrixWorld(true);
+        let box = new THREE.Box3().setFromObject(obj);
+        if (isPoints) box = robustBox(obj) || box;
+        if (box.isEmpty()) return;
+        const center = box.getCenter(new THREE.Vector3());
+        radius = box.getSize(new THREE.Vector3()).length() / 2 || 1;
+        const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.15;
+        camera.near = radius / 1000;
+        camera.far = radius * 200;
+        camera.position.copy(center).add(new THREE.Vector3(1, 0.7, 1.2).normalize().multiplyScalar(dist));
+        camera.updateProjectionMatrix();
+        camera.up.set(0, 1, 0);
+        controls.target.copy(center);
+        controls.minDistance = radius * 0.001;
+        controls.maxDistance = radius * 1000;
+        controls.update();
+        home = { pos: camera.position.clone(), target: center.clone() };
+      }
+
+      function robustBox(obj) {
+        const pos = obj.geometry?.getAttribute("position");
+        if (!pos || pos.count < 50) return null;
+        const step = Math.max(1, Math.floor(pos.count / 20000));
+        const v = new THREE.Vector3(), xs = [], ys = [], zs = [];
+        for (let i = 0; i < pos.count; i += step) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(obj.matrixWorld);
+          xs.push(v.x); ys.push(v.y); zs.push(v.z);
+        }
+        const q = (a, t) => { a.sort((m, n) => m - n); return a[Math.floor(t * (a.length - 1))]; };
+        const lo = new THREE.Vector3(q(xs, 0.02), q(ys, 0.02), q(zs, 0.02));
+        const hi = new THREE.Vector3(q(xs, 0.98), q(ys, 0.98), q(zs, 0.98));
+        return new THREE.Box3(lo, hi);
+      }
+
+      // --- Tải file theo danh sách ---
+      fetchFile(resolveUrl(scene.file), onProgress)
+        .then((buf) => loadBuffer(buf, ext, scene.file))
+        .catch((err) => fail(scene.file, err));
+
+      // --- Kéo thả file từ máy tính vào khung để xem thử ---
+      view.addEventListener("dragover", (e) => { e.preventDefault(); view.classList.add("drop"); });
+      view.addEventListener("dragleave", () => view.classList.remove("drop"));
+      view.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        view.classList.remove("drop");
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const fe = fmt(file.name);
+        tag.textContent = fe;
+        try { await loadBuffer(await file.arrayBuffer(), fe, file.name); }
+        catch (err) { fail(file.name, err); }
+      });
+
+      // --- Nút bấm ---
+      card.querySelector('[data-act="reset"]').addEventListener("click", () => {
+        if (!home) return;
+        camera.up.set(0, 1, 0);
+        camera.position.copy(home.pos);
+        controls.target.copy(home.target);
+        camera.lookAt(home.target);
+        makeControls();
+      });
+
+      const modeBtn = card.querySelector('[data-act="mode"]');
+      const updateModeBtn = () => { modeBtn.textContent = mode === "free" ? "Rotate: free" : "Rotate: upright"; };
+      updateModeBtn();
+      modeBtn.addEventListener("click", () => {
+        mode = mode === "free" ? "orbit" : "free";
+        makeControls();
+        updateModeBtn();
+      });
+
+    }
+
+    // ======================= BỘ ĐỌC FILE PLY =======================
+    // Bộ đọc file PLY (ASCII / binary little-endian / binary big-endian).
+    // Hỗ trợ: mesh tam giác, tứ giác, đa giác; đám mây điểm; màu theo đỉnh hoặc theo mặt
+    // (uchar, ushort, float); pháp tuyến; file Gaussian Splatting (f_dc_*, opacity).
+    //
+    // Trả về { positions, normals, colors, indices, isMesh, offset }
+    // - positions đã được trừ đi `offset` (toạ độ đỉnh đầu tiên) để giữ độ chính xác
+    //   với file có toạ độ rất lớn (VD: toạ độ UTM từ máy quét / drone).
+    // - colors ở không gian màu linear (sẵn sàng cho Three.js).
+
+    const TYPE_SIZE = {
+      char: 1, int8: 1, uchar: 1, uint8: 1,
+      short: 2, int16: 2, ushort: 2, uint16: 2,
+      int: 4, int32: 4, uint: 4, uint32: 4,
+      float: 4, float32: 4, double: 8, float64: 8,
+    };
+    const TYPE_MAX = { uchar: 255, uint8: 255, char: 127, int8: 127, ushort: 65535, uint16: 65535, short: 32767, int16: 32767 };
+
+    const SRGB_LUT = new Float32Array(256);
+    for (let i = 0; i < 256; i++) SRGB_LUT[i] = srgbToLinear(i / 255);
+    function srgbToLinear(c) {
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function makeReader(dv, type, le) {
+      switch (type) {
+        case "char": case "int8":   return (o) => dv.getInt8(o);
+        case "uchar": case "uint8": return (o) => dv.getUint8(o);
+        case "short": case "int16": return (o) => dv.getInt16(o, le);
+        case "ushort": case "uint16": return (o) => dv.getUint16(o, le);
+        case "int": case "int32":   return (o) => dv.getInt32(o, le);
+        case "uint": case "uint32": return (o) => dv.getUint32(o, le);
+        case "float": case "float32": return (o) => dv.getFloat32(o, le);
+        case "double": case "float64": return (o) => dv.getFloat64(o, le);
+        default: throw new Error(`Unsupported PLY data type: "${type}"`);
+      }
+    }
+
+    function parseHeader(bytes) {
+      // Tìm "end_header"
+      const maxScan = Math.min(bytes.length, 1 << 20);
+      let text = "";
+      for (let i = 0; i < maxScan; i++) text += String.fromCharCode(bytes[i]);
+      const m = /end_header[ \t]*(\r\n|\r|\n)/.exec(text);
+      if (!m) throw new Error('No "end_header" found — the PLY file is corrupted or incomplete.');
+      const headerLength = m.index + m[0].length;
+      const lines = text.slice(0, m.index).split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines[0] !== "ply") throw new Error("The file does not start with 'ply'.");
+
+      let format = null;
+      const elements = [];
+      for (const line of lines.slice(1)) {
+        const t = line.split(/\s+/);
+        if (t[0] === "format") format = t[1];
+        else if (t[0] === "element") elements.push({ name: t[1], count: parseInt(t[2], 10), props: [] });
+        else if (t[0] === "property") {
+          const el = elements[elements.length - 1];
+          if (!el) throw new Error("Invalid PLY header: 'property' appears before 'element'.");
+          if (t[1] === "list") el.props.push({ list: true, countType: t[2], itemType: t[3], name: t[4] });
+          else el.props.push({ list: false, type: t[1], name: t[2] });
+        }
+      }
+      if (!["ascii", "binary_little_endian", "binary_big_endian"].includes(format)) {
+        throw new Error(`Unsupported PLY format: "${format}"`);
+      }
+      for (const el of elements) for (const p of el.props) {
+        for (const ty of p.list ? [p.countType, p.itemType] : [p.type]) {
+          if (!TYPE_SIZE[ty]) throw new Error(`Unsupported PLY data type: "${ty}"`);
+        }
+      }
+      return { format, elements, headerLength };
+    }
+
+    function findProp(props, names) {
+      for (const n of names) {
+        const i = props.findIndex((p) => !p.list && p.name === n);
+        if (i >= 0) return i;
+      }
+      return -1;
+    }
+
+    function parsePLY(buffer) {
+      try {
+        return parsePLYInner(buffer);
+      } catch (e) {
+        if (e instanceof RangeError) throw new Error("The PLY file is truncated or corrupted (less data than the header declares). The upload may be incomplete.");
+        throw e;
+      }
+    }
+
+    function parsePLYInner(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const { format, elements, headerLength } = parseHeader(bytes);
+
+      const vEl = elements.find((e) => e.name === "vertex");
+      if (!vEl || vEl.count === 0) throw new Error("The PLY file contains no vertices.");
+      const fEl = elements.find((e) => e.name === "face");
+      const sEl = elements.find((e) => e.name === "tristrips");
+
+      // --- Xác định thuộc tính cần đọc ---
+      const vp = vEl.props;
+      const ix = findProp(vp, ["x"]), iy = findProp(vp, ["y"]), iz = findProp(vp, ["z"]);
+      if (ix < 0 || iy < 0 || iz < 0) throw new Error("Vertices have no x, y, z coordinates.");
+      const inx = findProp(vp, ["nx"]), iny = findProp(vp, ["ny"]), inz = findProp(vp, ["nz"]);
+      const ir = findProp(vp, ["red", "r", "diffuse_red"]);
+      const ig = findProp(vp, ["green", "g", "diffuse_green"]);
+      const ib = findProp(vp, ["blue", "b", "diffuse_blue"]);
+      const idc0 = findProp(vp, ["f_dc_0"]), idc1 = findProp(vp, ["f_dc_1"]), idc2 = findProp(vp, ["f_dc_2"]);
+      const iop = findProp(vp, ["opacity"]);
+      const hasN = inx >= 0 && iny >= 0 && inz >= 0;
+      const hasRGB = ir >= 0 && ig >= 0 && ib >= 0;
+      const isSplat = !hasRGB && idc0 >= 0 && idc1 >= 0 && idc2 >= 0;
+      const colorType = hasRGB ? vp[ir].type : null;
+
+      const nV = vEl.count;
+      const positions = new Float32Array(nV * 3);
+      const normals = hasN ? new Float32Array(nV * 3) : null;
+      let colors = hasRGB || isSplat ? new Float32Array(nV * 3) : null;
+      const keep = isSplat && iop >= 0 ? new Uint8Array(nV) : null; // lọc điểm gần trong suốt
+      const offset = [0, 0, 0];
+
+      const tris = [];          // chỉ số tam giác
+      let faceColors = null;    // màu theo mặt (nếu có)
+      const fp = fEl ? fEl.props : [];
+      const iList = fEl ? fp.findIndex((p) => p.list && (p.name === "vertex_indices" || p.name === "vertex_index")) : -1;
+      const iListAny = iList >= 0 ? iList : fp.findIndex((p) => p.list);
+      const fr = fEl ? findProp(fp, ["red", "r", "diffuse_red"]) : -1;
+      const fg = fEl ? findProp(fp, ["green", "g", "diffuse_green"]) : -1;
+      const fb = fEl ? findProp(fp, ["blue", "b", "diffuse_blue"]) : -1;
+      const hasFaceRGB = fr >= 0 && fg >= 0 && fb >= 0 && !hasRGB;
+      if (hasFaceRGB) faceColors = [];
+      const fColorMax = hasFaceRGB ? (TYPE_MAX[fp[fr].type] || 1) : 1;
+
+      const pushPoly = (idx) => {
+        for (let k = 1; k + 1 < idx.length; k++) {
+          tris.push(idx[0], idx[k], idx[k + 1]);
+        }
+        return Math.max(0, idx.length - 2);
+      };
+      const pushStrip = (idx) => {
+        let a = -1, b = -1, flip = false;
+        for (const c of idx) {
+          if (c < 0) { a = b = -1; flip = false; continue; }
+          if (a >= 0 && b >= 0) { flip ? tris.push(b, a, c) : tris.push(a, b, c); flip = !flip; }
+          a = b; b = c;
+        }
+      };
+
+      const toColor = (v, type) => {
+        if (type === "float" || type === "float32" || type === "double" || type === "float64") {
+          return v; // xử lý sau khi đọc xong (xem bên dưới)
+        }
+        const max = TYPE_MAX[type] || 255;
+        return max === 255 ? SRGB_LUT[v & 255] : srgbToLinear(Math.min(1, Math.max(0, v / max)));
+      };
+
+      // Xử lý một đỉnh đã đọc thành mảng giá trị `vals`
+      const onVertex = (i, vals) => {
+        const x = vals[ix], y = vals[iy], z = vals[iz];
+        if (i === 0) { offset[0] = x; offset[1] = y; offset[2] = z; }
+        positions[i * 3] = x - offset[0];
+        positions[i * 3 + 1] = y - offset[1];
+        positions[i * 3 + 2] = z - offset[2];
+        if (normals) { normals[i * 3] = vals[inx]; normals[i * 3 + 1] = vals[iny]; normals[i * 3 + 2] = vals[inz]; }
+        if (hasRGB) {
+          colors[i * 3] = toColor(vals[ir], colorType);
+          colors[i * 3 + 1] = toColor(vals[ig], colorType);
+          colors[i * 3 + 2] = toColor(vals[ib], colorType);
+        } else if (isSplat) {
+          const SH = 0.28209479177387814;
+          colors[i * 3] = srgbToLinear(Math.min(1, Math.max(0, 0.5 + SH * vals[idc0])));
+          colors[i * 3 + 1] = srgbToLinear(Math.min(1, Math.max(0, 0.5 + SH * vals[idc1])));
+          colors[i * 3 + 2] = srgbToLinear(Math.min(1, Math.max(0, 0.5 + SH * vals[idc2])));
+          if (keep) keep[i] = 1 / (1 + Math.exp(-vals[iop])) > 0.1 ? 1 : 0;
+        }
+      };
+
+      const onFace = (vals) => {
+        const idx = vals[iListAny];
+        if (!idx) return;
+        const n = pushPoly(idx);
+        if (hasFaceRGB) {
+          const c = [vals[fr], vals[fg], vals[fb]].map((v) => srgbToLinear(Math.min(1, Math.max(0, v / fColorMax))));
+          for (let k = 0; k < n; k++) faceColors.push(c[0], c[1], c[2]);
+        }
+      };
+
+      // Màu kiểu float: đoán thang 0..1 hay 0..255 (một số phần mềm ghi float 0..255)
+      const needFloatScaleCheck = hasRGB && TYPE_SIZE[colorType] >= 4 && !TYPE_MAX[colorType];
+
+      if (format === "ascii") {
+        const text = new TextDecoder().decode(bytes.subarray(headerLength));
+        const tok = text.split(/\s+/).filter(Boolean);
+        let t = 0;
+        const num = (s) => Number(s);
+        for (const el of elements) {
+          for (let e = 0; e < el.count; e++) {
+            const vals = new Array(el.props.length);
+            for (let p = 0; p < el.props.length; p++) {
+              const pr = el.props[p];
+              if (pr.list) {
+                const n = num(tok[t++]);
+                const arr = new Array(n);
+                for (let k = 0; k < n; k++) arr[k] = num(tok[t++]);
+                vals[p] = arr;
+              } else vals[p] = num(tok[t++]);
+            }
+            if (t > tok.length) throw new Error(`The PLY file is truncated (missing data in the "${el.name}" section).`);
+            if (el === vEl) onVertex(e, vals);
+            else if (el === fEl) onFace(vals);
+            else if (el === sEl) pushStrip(vals.find(Array.isArray) || []);
+          }
+        }
+      } else {
+        const le = format === "binary_little_endian";
+        const dv = new DataView(buffer);
+        let o = headerLength;
+        for (const el of elements) {
+          const readers = el.props.map((p) => p.list
+            ? { list: true, cnt: makeReader(dv, p.countType, le), cs: TYPE_SIZE[p.countType], item: makeReader(dv, p.itemType, le), is: TYPE_SIZE[p.itemType] }
+            : { list: false, r: makeReader(dv, p.type, le), s: TYPE_SIZE[p.type] });
+          const vals = new Array(el.props.length);
+          const interesting = el === vEl || el === fEl || el === sEl;
+          // Với đỉnh: chỉ đọc các thuộc tính cần dùng (file splat có ~60 thuộc tính/đỉnh)
+          const used = new Set([ix, iy, iz, inx, iny, inz, ir, ig, ib, idc0, idc1, idc2, iop]);
+          readers.forEach((rd, p) => { rd.need = interesting && (el !== vEl || used.has(p)); });
+          // Đường nhanh: mọi thuộc tính đều là số đơn → bước nhảy cố định
+          if (!readers.some((r) => r.list)) {
+            const stride = readers.reduce((s, r) => s + r.s, 0);
+            const offs = []; let acc = 0;
+            for (const r of readers) { offs.push(acc); acc += r.s; }
+            if (o + stride * el.count > dv.byteLength) {
+              throw new Error(`The PLY file is truncated (missing data in the "${el.name}" section). The upload may be incomplete.`);
+            }
+            if (interesting) {
+              for (let e = 0; e < el.count; e++, o += stride) {
+                for (let p = 0; p < readers.length; p++) if (readers[p].need) vals[p] = readers[p].r(o + offs[p]);
+                if (el === vEl) onVertex(e, vals);
+              }
+            } else o += stride * el.count;
+            continue;
+          }
+          for (let e = 0; e < el.count; e++) {
+            if (o > dv.byteLength) break;
+            for (let p = 0; p < readers.length; p++) {
+              const rd = readers[p];
+              if (rd.list) {
+                const n = rd.cnt(o); o += rd.cs;
+                if (interesting) {
+                  const arr = new Array(n);
+                  for (let k = 0; k < n; k++) { arr[k] = rd.item(o); o += rd.is; }
+                  vals[p] = arr;
+                } else o += n * rd.is;
+              } else {
+                if (rd.need) vals[p] = rd.r(o);
+                o += rd.s;
+              }
+            }
+            if (o > dv.byteLength) throw new Error(`The PLY file is truncated (missing data in the "${el.name}" section). The upload may be incomplete.`);
+            if (el === vEl) onVertex(e, vals);
+            else if (el === fEl) onFace(vals);
+            else if (el === sEl) pushStrip(vals.find(Array.isArray) || []);
+          }
+        }
+      }
+
+      // Màu kiểu float: chưa chuyển đổi lúc đọc; giờ đoán thang 0..1 hay 0..255 rồi chuyển sang linear
+      if (needFloatScaleCheck && colors) {
+        let max = 0;
+        for (let i = 0; i < colors.length; i++) if (colors[i] > max) max = colors[i];
+        const s = max > 1.5 ? 1 / 255 : 1;
+        for (let i = 0; i < colors.length; i++) colors[i] = srgbToLinear(Math.min(1, Math.max(0, colors[i] * s)));
+      }
+
+      // Lọc chỉ số vượt phạm vi (file hỏng nhẹ)
+      let indices = null;
+      if (tris.length) {
+        indices = new Uint32Array(tris.length);
+        let bad = 0;
+        for (let i = 0; i < tris.length; i++) {
+          const v = tris[i];
+          if (v < 0 || v >= nV) bad++;
+          indices[i] = v;
+        }
+        if (bad) {
+          const ok = [];
+          for (let i = 0; i < indices.length; i += 3) {
+            const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+            if (a < nV && b < nV && c < nV) ok.push(a, b, c);
+          }
+          indices = new Uint32Array(ok);
+        }
+      }
+
+      let outPos = positions, outN = normals, outC = colors;
+
+      // Gaussian splat: bỏ các điểm gần như trong suốt (thường là "bụi" lơ lửng)
+      if (keep && !indices) {
+        let n = 0; for (let i = 0; i < nV; i++) n += keep[i];
+        if (n > nV * 0.2) {
+          outPos = new Float32Array(n * 3); outC = new Float32Array(n * 3);
+          outN = normals ? new Float32Array(n * 3) : null;
+          for (let i = 0, j = 0; i < nV; i++) if (keep[i]) {
+            outPos.set(positions.subarray(i * 3, i * 3 + 3), j * 3);
+            outC.set(colors.subarray(i * 3, i * 3 + 3), j * 3);
+            if (outN) outN.set(normals.subarray(i * 3, i * 3 + 3), j * 3);
+            j++;
+          }
+        }
+      }
+
+      // Màu theo mặt → tách đỉnh để mỗi tam giác có màu riêng
+      if (indices && faceColors && faceColors.length === (indices.length / 3) * 3) {
+        const nT = indices.length / 3;
+        const p2 = new Float32Array(nT * 9), c2 = new Float32Array(nT * 9);
+        const n2 = normals ? new Float32Array(nT * 9) : null;
+        for (let t = 0; t < nT; t++) for (let k = 0; k < 3; k++) {
+          const v = indices[t * 3 + k], d = t * 9 + k * 3;
+          p2[d] = positions[v * 3]; p2[d + 1] = positions[v * 3 + 1]; p2[d + 2] = positions[v * 3 + 2];
+          if (n2) { n2[d] = normals[v * 3]; n2[d + 1] = normals[v * 3 + 1]; n2[d + 2] = normals[v * 3 + 2]; }
+          c2[d] = faceColors[t * 3]; c2[d + 1] = faceColors[t * 3 + 1]; c2[d + 2] = faceColors[t * 3 + 2];
+        }
+        return { positions: p2, normals: n2, colors: c2, indices: null, isMesh: true, offset, splat: false };
+      }
+
+      return { positions: outPos, normals: outN, colors: outC, indices, isMesh: !!indices, offset, splat: isSplat };
+    }
+
+
+    // Dữ liệu PLY → đối tượng Three.js (mesh hoặc đám mây điểm)
+    function plyToObject(d, scene) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(d.positions, 3));
+      if (d.normals) g.setAttribute("normal", new THREE.BufferAttribute(d.normals, 3));
+      if (d.colors) g.setAttribute("color", new THREE.BufferAttribute(d.colors, 3));
+      const hasColor = !!d.colors;
+
+      if (d.isMesh) {
+        if (d.indices) g.setIndex(new THREE.BufferAttribute(d.indices, 1));
+        if (!d.normals) g.computeVertexNormals();
+        const material = new THREE.MeshStandardMaterial({
+          color: hasColor ? 0xffffff : 0xb8bcc8,
+          vertexColors: hasColor,
+          roughness: 0.8,
+          metalness: 0.0,
+          side: THREE.DoubleSide,
+        });
+        return new THREE.Mesh(g, material);
+      }
+
+      const material = new THREE.PointsMaterial({
+        size: scene.pointSize ?? 2,
+        sizeAttenuation: false,
+        vertexColors: hasColor,
+        color: hasColor ? 0xffffff : 0xb8bcc8,
+      });
+      return new THREE.Points(g, material);
+    }
+  </script>
+</body>
+</html>
