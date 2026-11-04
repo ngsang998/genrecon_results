@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D Scene Gallery</title>
+  <title>GenRecon Results</title>
   <script type="importmap">
   {
     "imports": {
@@ -30,7 +30,9 @@
     }
     header { padding: 32px 24px 8px; max-width: 1800px; margin: 0 auto; }
     header h1 { font-size: 1.75rem; font-weight: 600; }
-    header p { color: var(--muted); margin-top: 6px; font-size: 0.95rem; }
+    header p { color: var(--muted); margin-top: 14px; font-size: 0.85rem; }
+    .settings { list-style: none; margin-top: 12px; display: grid; gap: 5px; font-size: 0.95rem; color: var(--text); }
+    .settings b { color: var(--accent); font-weight: 600; margin-right: 4px; }
 
     .grid {
       display: grid;
@@ -141,7 +143,13 @@
 </head>
 <body>
   <header>
-    <h1>3D Scene Gallery</h1>
+    <h1>GenRecon Results</h1>
+    <ul class="settings">
+      <li><b>Setting #1:</b> Input Video → MoVieS + VPT → remove object Gaussians in 3D → rendering → GenRecon</li>
+      <li><b>Setting #2:</b> Inpainted input video → MoVieS + VPT → rendering → GenRecon</li>
+      <li><b>Setting #3:</b> Inpainted input video → GenRecon</li>
+      <li><b>Setting #4:</b> Input Video → GenRecon (no aggregation in masked regions)</li>
+    </ul>
     <p>Drag to rotate · Scroll or pinch to zoom · Right-click drag or two-finger drag to pan · Drop a .ply file onto any panel to preview it</p>
   </header>
 
