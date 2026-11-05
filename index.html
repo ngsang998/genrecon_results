@@ -28,7 +28,42 @@
       color: var(--text);
       min-height: 100vh;
     }
-    header { padding: 32px 24px 8px; max-width: 1800px; margin: 0 auto; }
+    header {
+      padding: 32px 24px 8px; max-width: 1800px; margin: 0 auto;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+    }
+    .head-text { min-width: 0; }
+
+    /* 2 video nguồn ở góc trên phải */
+    .sources { display: flex; gap: 12px; flex-shrink: 0; }
+    .src {
+      width: 240px; cursor: zoom-in;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    }
+    .src:hover { border-color: var(--accent); }
+    .src video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #000; }
+    .src span { display: block; font-size: 0.78rem; color: var(--muted); padding: 6px 10px; }
+    .src.hidden { display: none; }
+    @media (max-width: 1100px) {
+      header { flex-direction: column; }
+      .src { width: 200px; }
+    }
+
+    /* Cửa sổ xem video lớn */
+    .lightbox {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.85);
+      display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+      padding: 24px;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox video { max-width: 92vw; max-height: 80vh; border-radius: 8px; background: #000; }
+    .lightbox .lb-title { color: var(--text); font-size: 0.95rem; }
+    .lightbox .lb-close {
+      position: absolute; top: 16px; right: 20px;
+      background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 0.85rem;
+    }
     header h1 { font-size: 1.75rem; font-weight: 600; }
     header p { color: var(--muted); margin-top: 14px; font-size: 0.85rem; }
     .settings { list-style: none; margin-top: 12px; display: grid; gap: 5px; font-size: 0.95rem; color: var(--text); }
@@ -143,6 +178,7 @@
 </head>
 <body>
   <header>
+   <div class="head-text">
     <h1>GenRecon Results</h1>
     <ul class="settings">
       <li><b>Setting #1:</b> Input Video → MoVieS + VPT → remove object Gaussians in 3D → rendering → GenRecon</li>
@@ -151,6 +187,8 @@
       <li><b>Setting #4:</b> Input Video → GenRecon (no aggregation in masked regions)</li>
     </ul>
     <p>Drag to rotate · Scroll or pinch to zoom · Right-click drag or two-finger drag to pan · Drop a .ply file onto any panel to preview it</p>
+   </div>
+    <div class="sources" id="sources"></div>
   </header>
 
   <div id="fatal" style="display:none;max-width:900px;margin:24px auto;padding:16px 20px;border:1px solid #ff8a8a;border-radius:10px;color:#ff8a8a;font-size:0.95rem;line-height:1.5"></div>
@@ -174,6 +212,12 @@
   </script>
   <main class="grid" id="grid"></main>
 
+  <div class="lightbox" id="lightbox">
+    <button class="lb-close">Close ✕</button>
+    <video controls playsinline loop></video>
+    <div class="lb-title"></div>
+  </div>
+
   <footer>PLY viewer · Rendered with Three.js</footer>
 
   <script type="module">
@@ -190,6 +234,12 @@
     //   "https://huggingface.co/datasets/TEN-TAI-KHOAN/TEN-DATASET/resolve/main/"
     //   (nhớ dấu / ở cuối). Đường dẫn bắt đầu bằng http(s):// bên dưới sẽ không bị ghép BASE_URL.
     const BASE_URL = "https://huggingface.co/datasets/SangNguyenQuang/genrecon_results/resolve/main/";
+
+    // 2 video nguồn hiển thị ở góc trên phải của trang
+    const SOURCE_VIDEOS = [
+      { label: "Original Scene 1",           file: "videos/src_scene_1.mp4" },
+      { label: "Original Scene 2", file: "videos/src_scene_2.mp4" },
+    ];
 
     const SCENES = [
       // Hàng 1
@@ -216,8 +266,36 @@
     const draco = new DRACOLoader().setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
     const gltfLoader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
 
-    const grid = document.getElementById("grid");
     const resolveUrl = (f) => (!f || /^(https?:)?\/\//.test(f) || !BASE_URL) ? f : BASE_URL.replace(/\/?$/, "/") + f.replace(/^\.?\//, "");
+    const grid = document.getElementById("grid");
+
+    // --- Video nguồn + cửa sổ xem lớn ---
+    const lightbox = document.getElementById("lightbox");
+    const lbVideo = lightbox.querySelector("video");
+    const lbTitle = lightbox.querySelector(".lb-title");
+    function openLightbox(src, title) {
+      lbVideo.src = src; lbTitle.textContent = title;
+      lightbox.classList.add("open");
+      lbVideo.play().catch(() => {});
+    }
+    function closeLightbox() {
+      lightbox.classList.remove("open");
+      lbVideo.pause(); lbVideo.removeAttribute("src"); lbVideo.load();
+    }
+    lightbox.querySelector(".lb-close").addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
+
+    const sourcesEl = document.getElementById("sources");
+    for (const sv of SOURCE_VIDEOS) {
+      const el = document.createElement("div");
+      el.className = "src";
+      el.title = "Click to enlarge";
+      el.innerHTML = `<video src="${resolveUrl(sv.file)}" muted loop playsinline autoplay></video><span>${sv.label}</span>`;
+      el.querySelector("video").addEventListener("error", () => el.classList.add("hidden"));
+      el.addEventListener("click", () => openLightbox(resolveUrl(sv.file), sv.label));
+      sourcesEl.appendChild(el);
+    }
     const fmt = (f) => f.split("?")[0].split(".").pop().toLowerCase();
 
     // Chỉ vẽ những khung đang nằm trên màn hình để tiết kiệm pin/GPU
