@@ -92,11 +92,11 @@
     .view {
       position: relative;
       width: 100%;
-      height: 320px;
+      height: 300px;
       background: radial-gradient(circle at 50% 40%, #252a35 0%, #14161c 100%);
       touch-action: none;
     }
-    .view canvas { display: block; width: 100%; height: 100%; }
+    #gl { position: fixed; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
 
     /* Video quay thực tế ở góc khung */
     .pip {
@@ -107,7 +107,7 @@
       box-shadow: 0 4px 14px rgba(0,0,0,0.5);
       background: #000; cursor: zoom-in;
       transition: width 0.25s, height 0.25s, right 0.25s, bottom 0.25s, border-radius 0.25s;
-      z-index: 2;
+      z-index: 3;
     }
     .pip video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .pip .pip-label {
@@ -130,7 +130,7 @@
     .pip.hidden { display: none; }
 
     .progress {
-      position: absolute; left: 0; bottom: 0;
+      position: absolute; left: 0; bottom: 0; z-index: 2;
       height: 3px; width: 0%;
       background: var(--accent);
       transition: width 0.2s, opacity 0.4s;
@@ -138,7 +138,7 @@
     .progress.done { opacity: 0; }
 
     .status {
-      position: absolute; inset: 0;
+      position: absolute; inset: 0; z-index: 2;
       display: flex; align-items: center; justify-content: center;
       text-align: center; padding: 20px;
       color: var(--muted); font-size: 0.9rem;
@@ -147,6 +147,7 @@
     .status.error { color: #ff8a8a; }
     .status.hidden { display: none; }
     .status small { color: var(--muted); word-break: break-all; }
+    .view.active { box-shadow: inset 0 0 0 1px var(--accent); }
     .view.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
 
     .info {
@@ -154,7 +155,7 @@
       padding: 12px 14px; gap: 8px; flex-wrap: wrap;
       border-top: 1px solid var(--border);
     }
-    .info h2 { font-size: 1rem; font-weight: 500; }
+    .info h2 { font-size: 0.92rem; font-weight: 500; flex-basis: 100%; line-height: 1.35; }
     .info .tag {
       font-size: 0.7rem; color: var(--muted);
       border: 1px solid var(--border); border-radius: 4px;
@@ -173,6 +174,32 @@
     }
     .actions button:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* Tabs */
+    .tabs {
+      max-width: 1800px; margin: 16px auto 0; padding: 0 24px;
+      display: flex; gap: 4px; border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      background: transparent; color: var(--muted); border: none;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      padding: 10px 18px; font-size: 0.95rem; cursor: pointer;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .tab-panel.hidden { display: none; }
+    body.viewer-mode .settings, body.viewer-mode header p, body.viewer-mode .sources { display: none; }
+
+    /* Viewer tab */
+    .viewer-panel { max-width: 1800px; margin: 0 auto; padding: 20px 24px 24px; }
+    .viewer-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+    .open-btn {
+      background: var(--accent); color: #fff; border-radius: 8px;
+      padding: 8px 16px; font-size: 0.9rem; cursor: pointer; font-weight: 500;
+    }
+    .open-btn:hover { filter: brightness(1.1); }
+    .viewer-hint { color: var(--muted); font-size: 0.85rem; }
+    .viewer-panel .view { height: calc(100vh - 290px); min-height: 380px; }
+
     footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 16px 0 32px; }
   </style>
 </head>
@@ -181,12 +208,12 @@
    <div class="head-text">
     <h1>GenRecon Results</h1>
     <ul class="settings">
-      <li><b>Setting #1:</b> Setting #1 (2D-3D-2D-3D): Video -> MoVieS + VPT -> Remove Gaussians in 3D -> Rendering (Original & Novel Trajectory) -> GenRecon </li>
-      <li><b>Setting #2:</b> Setting #2 (2D-3D-2D-3D): Inpainted Video -> MoVieS + VPT -> Rendering (Original & Novel Trajectory) -> GenRecon</li>
-      <li><b>Setting #3:</b> Setting #3 (2D-3D): Inpainted Video -> GenRecon</li>
-      <li><b>Setting #4:</b> Setting #4 (2D-3D): Video + Mask -> GenRecon (no aggregation of DINO from masked regions)</li>
+      <li><b>Setting #1:</b> Input Video → MoVieS + VPT → remove object Gaussians in 3D → rendering → GenRecon</li>
+      <li><b>Setting #2:</b> Inpainted input video → MoVieS + VPT → rendering → GenRecon</li>
+      <li><b>Setting #3:</b> Inpainted input video → GenRecon</li>
+      <li><b>Setting #4:</b> Input Video → GenRecon (no aggregation in masked regions)</li>
     </ul>
-    <p>Drag to rotate · Scroll or pinch to zoom · Right-click drag or two-finger drag to pan · Drop a .ply file onto any panel to preview it</p>
+    <p>Drag to rotate · Click a panel, then scroll to zoom (or pinch) · Right-click drag or two-finger drag to pan · Drop a .ply file onto any panel to preview it</p>
    </div>
     <div class="sources" id="sources"></div>
   </header>
@@ -210,7 +237,22 @@
         : "The page failed to start. Your network may be blocking cdn.jsdelivr.net (the Three.js library). Press F12 → Console for details.";
     }, 6000);
   </script>
-  <main class="grid" id="grid"></main>
+  <nav class="tabs">
+    <button class="tab active" data-tab="results">Results</button>
+    <button class="tab" data-tab="viewer">Viewer</button>
+  </nav>
+
+  <main class="grid tab-panel" id="grid" data-panel="results"></main>
+
+  <section class="tab-panel viewer-panel hidden" id="viewer" data-panel="viewer">
+    <div class="viewer-bar">
+      <label class="open-btn">
+        Open .ply file…
+        <input type="file" id="localFile" accept=".ply,.glb,.gltf" hidden>
+      </label>
+      <span class="viewer-hint">or drop a .ply file onto the window below · scroll to zoom · drag to rotate</span>
+    </div>
+  </section>
 
   <div class="lightbox" id="lightbox">
     <button class="lb-close">Close ✕</button>
@@ -303,7 +345,64 @@
       for (const e of entries) e.target._viewer?.setVisible(e.isIntersecting);
     });
 
+    // ---- Một bộ vẽ WebGL duy nhất cho cả trang ----
+    // Trình duyệt chỉ cho khoảng 16 bộ vẽ WebGL mỗi trang, nên mọi ô dùng chung
+    // một canvas phủ toàn màn hình; mỗi ô chỉ được vẽ trong đúng khung của nó.
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.setClearColor(0x000000, 0);
+    renderer.domElement.id = "gl";
+    document.body.appendChild(renderer.domElement);
+    const envMap = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+    const VIEWERS = [];
+
+    renderer.setAnimationLoop(() => {
+      const c = renderer.domElement;
+      const w = c.clientWidth, h = c.clientHeight;
+      const size = renderer.getSize(new THREE.Vector2());
+      if (size.x !== w || size.y !== h) renderer.setSize(w, h, false);
+      renderer.setScissorTest(false);
+      renderer.clear();
+      renderer.setScissorTest(true);
+      for (const v of VIEWERS) {
+        if (!v.isVisible()) continue;
+        const r = v.view.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > h || r.right < 0 || r.left > w || r.width < 1 || r.height < 1) continue;
+        const y = h - r.bottom;
+        renderer.setViewport(r.left, y, r.width, r.height);
+        renderer.setScissor(r.left, y, r.width, r.height);
+        v.draw(r);
+      }
+    });
+
     SCENES.forEach((scene) => createViewer(scene));
+
+    // ---- Tab "Viewer": một khung lớn để mở file PLY bất kỳ trên máy ----
+    const bigViewer = createViewer({
+      title: "No file opened",
+      container: document.getElementById("viewer"),
+      emptyText: "<span>Click <b>Open .ply file…</b> above, or drop a .ply file here</span>",
+      showFileName: true,
+      wheelAlways: true,
+    });
+    document.getElementById("localFile").addEventListener("change", (e) => {
+      bigViewer.openLocalFile(e.target.files[0]);
+      e.target.value = "";
+    });
+
+    // Chuyển tab (nhớ tab qua địa chỉ: .../#viewer)
+    function showTab(name) {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== name));
+      // Ở tab Viewer: ẩn phần mô tả Setting và video nguồn để khung xem lớn vừa màn hình
+      document.body.classList.toggle("viewer-mode", name === "viewer");
+    }
+    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+      history.replaceState(null, "", t.dataset.tab === "results" ? location.pathname : "#" + t.dataset.tab);
+      showTab(t.dataset.tab);
+    }));
+    showTab(location.hash === "#viewer" ? "viewer" : "results");
 
     // Tải file, báo tiến độ và lỗi rõ ràng
     async function fetchFile(url, onProgress) {
@@ -344,7 +443,7 @@
     }
 
     function createViewer(scene) {
-      const ext = fmt(scene.file);
+      const ext = scene.file ? fmt(scene.file) : "";
       const card = document.createElement("div");
       card.className = "card";
       card.innerHTML = `
@@ -365,7 +464,8 @@
             <button data-act="reset" title="Return the camera to its starting view">Reset</button>
           </div>
         </div>`;
-      grid.appendChild(card);
+      (scene.container || grid).appendChild(card);
+      if (!ext) card.querySelector(".tag").style.display = "none";
 
       const view = card.querySelector(".view");
       const bar = card.querySelector(".progress");
@@ -395,15 +495,9 @@
         });
       }
 
-      // --- Renderer, scene, camera ---
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      view.prepend(renderer.domElement);
-
+      // --- Scene, camera (dùng chung một bộ vẽ cho mọi ô) ---
       const world = new THREE.Scene();
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      world.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      world.environment = envMap;
       const sun = new THREE.DirectionalLight(0xffffff, 1.5);
       sun.position.set(3, 5, 4);
       world.add(sun);
@@ -419,7 +513,7 @@
         const target = controls ? controls.target.clone() : new THREE.Vector3();
         controls?.dispose();
         if (mode === "free") {
-          controls = new TrackballControls(camera, renderer.domElement);
+          controls = new TrackballControls(camera, view);
           controls.rotateSpeed = 3.0;
           controls.zoomSpeed = 1.2;
           controls.panSpeed = 0.8;
@@ -428,7 +522,7 @@
           controls.handleResize();
         } else {
           camera.up.set(0, 1, 0);
-          controls = new OrbitControls(camera, renderer.domElement);
+          controls = new OrbitControls(camera, view);
           controls.enableDamping = true;
           controls.screenSpacePanning = true;
         }
@@ -445,23 +539,29 @@
       let visible = false;
       let current = null;
 
-      function resize() {
-        const w = view.clientWidth, h = view.clientHeight;
-        if (!w || !h) return;
-        renderer.setSize(w, h, false);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-        controls?.handleResize?.();
-      }
-      new ResizeObserver(resize).observe(view);
-      resize();
+      new ResizeObserver(() => controls?.handleResize?.()).observe(view);
 
-      renderer.setAnimationLoop(() => {
-        if (!visible) return;
-        const dt = clock.getDelta();
-        if (mixer) mixer.update(dt);
-        controls.update();
-        renderer.render(world, camera);
+      // Lăn chuột: mặc định để cuộn trang. Chỉ zoom sau khi người dùng bấm vào ô;
+      // rời chuột khỏi ô thì trở lại cuộn trang.
+      let wheelActive = !!scene.wheelAlways;
+      if (!scene.wheelAlways) {
+        view.addEventListener("pointerdown", () => { wheelActive = true; view.classList.add("active"); }, true);
+        view.addEventListener("pointerleave", () => { wheelActive = false; view.classList.remove("active"); });
+      }
+      view.addEventListener("wheel", (e) => { if (!wheelActive) e.stopImmediatePropagation(); }, { capture: true });
+
+      // Bộ vẽ chung sẽ gọi hàm này mỗi khung hình cho các ô đang hiện trên màn hình
+      VIEWERS.push({
+        view,
+        isVisible: () => visible,
+        draw(rect) {
+          const dt = clock.getDelta();
+          if (mixer) mixer.update(dt);
+          const aspect = rect.width / rect.height;
+          if (Math.abs(camera.aspect - aspect) > 1e-4) { camera.aspect = aspect; camera.updateProjectionMatrix(); }
+          controls.update();
+          renderer.render(world, camera);
+        },
       });
 
       view._viewer = {
@@ -564,22 +664,28 @@
       }
 
       // --- Tải file theo danh sách ---
-      fetchFile(resolveUrl(scene.file), onProgress)
+      if (!scene.file) { setStatus(scene.emptyText || ""); bar.classList.add("done"); }
+      else fetchFile(resolveUrl(scene.file), onProgress)
         .then((buf) => loadBuffer(buf, ext, scene.file))
         .catch((err) => fail(scene.file, err));
 
       // --- Kéo thả file từ máy tính vào khung để xem thử ---
       view.addEventListener("dragover", (e) => { e.preventDefault(); view.classList.add("drop"); });
       view.addEventListener("dragleave", () => view.classList.remove("drop"));
-      view.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        view.classList.remove("drop");
-        const file = e.dataTransfer.files[0];
+      async function openLocalFile(file) {
         if (!file) return;
         const fe = fmt(file.name);
         tag.textContent = fe;
+        tag.style.display = "";
+        if (scene.showFileName) card.querySelector(".name").textContent = file.name;
+        setStatus(`Reading ${file.name}…`);
         try { await loadBuffer(await file.arrayBuffer(), fe, file.name); }
         catch (err) { fail(file.name, err); }
+      }
+      view.addEventListener("drop", (e) => {
+        e.preventDefault();
+        view.classList.remove("drop");
+        openLocalFile(e.dataTransfer.files[0]);
       });
 
       // --- Nút bấm ---
@@ -600,6 +706,8 @@
         makeControls();
         updateModeBtn();
       });
+
+      return { openLocalFile };
 
     }
 
